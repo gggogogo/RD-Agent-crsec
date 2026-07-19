@@ -121,5 +121,67 @@ def collect_info_cli():
     collect_info()
 
 
+@app.command(name="sota")
+def sota_cli(
+    log_path: Optional[str] = None,
+    trace_name: Optional[str] = None,
+    output: str = "json",
+):
+    """
+    Query SOTA (best) experiment artifacts from a LoopBase session.
+
+    Specify either --log-path (direct session path) or --trace-name (scan log/).
+    Output format: json (default) | table | code (factor/model code only).
+    """
+    import json as json_mod
+
+    from rdagent.log.sota_query import find_session_by_trace_name, query_sota
+
+    if log_path is None and trace_name is None:
+        typer.echo("Error: must specify --log-path or --trace-name", err=True)
+        raise typer.Exit(1)
+
+    if log_path is None:
+        resolved = find_session_by_trace_name(trace_name)
+        if resolved is None:
+            typer.echo(f"Error: no session matching trace '{trace_name}' in log/", err=True)
+            raise typer.Exit(1)
+        log_path = str(resolved)
+
+    result = query_sota(log_path)
+
+    if "error" in result:
+        typer.echo(f"Error: {result['error']} — {result.get('detail', '')}", err=True)
+        raise typer.Exit(1)
+
+    if output == "json":
+        typer.echo(json_mod.dumps(result, indent=2, default=str, ensure_ascii=False))
+    elif output == "code":
+        for f in result.get("sota_factors", []):
+            typer.echo(f"--- Factor: {f.get('name', '?')} ---")
+            typer.echo(f.get("code", "(no code)"))
+        model = result.get("sota_model")
+        if model:
+            typer.echo(f"--- Model: {model.get('name', '?')} ---")
+            typer.echo(model.get("code", "(no code)"))
+    else:
+        # table format
+        typer.echo(f"SOTA Loop ID:    {result.get('sota_loop_id', '?')}")
+        typer.echo(f"Experiments:     {result.get('total_experiments', '?')}")
+        hyp = result.get("sota_hypothesis", {})
+        typer.echo(f"Hypothesis:      {hyp.get('hypothesis', '?')[:80]}...")
+        typer.echo(f"Decision:        {result.get('sota_feedback', {}).get('decision', '?')}")
+        typer.echo("\nMetrics:")
+        for k, v in result.get("sota_metrics", {}).items():
+            typer.echo(f"  {k}: {v}")
+        for f in result.get("sota_factors", []):
+            typer.echo(f"\nFactor: {f.get('name', '?')} — {f.get('description', '?')[:60]}")
+            typer.echo(f"  workspace: {f.get('workspace_path', '?')}")
+        model = result.get("sota_model")
+        if model:
+            typer.echo(f"\nModel: {model.get('name', '?')} ({model.get('model_type', '?')})")
+            typer.echo(f"  workspace: {model.get('workspace_path', '?')}")
+
+
 if __name__ == "__main__":
     app()

@@ -556,6 +556,39 @@ def test():
     return jsonify({"msgs": msgs, "pointers": pointers}), 200
 
 
+@app.route("/traces/<path:trace_name>/sota", methods=["GET"])
+def get_sota(trace_name: str):
+    """Query SOTA experiment artifacts for a given trace.
+
+    Args:
+        trace_name: Trace identifier (can be a log/ timestamp or a Flask trace id).
+
+    Query params:
+        log_path: Direct path to log directory (bypasses trace_name scanning).
+    """
+    from rdagent.log.sota_query import find_session_by_trace_name, query_sota
+
+    log_path = request.args.get("log_path")
+    if log_path is None:
+        # Try trace_name as direct path first, then scan log/
+        candidate = Path(trace_name)
+        if candidate.is_dir() and (candidate / "__session__").exists():
+            log_path = str(candidate)
+        else:
+            resolved = find_session_by_trace_name(trace_name)
+            if resolved is None:
+                return jsonify({
+                    "error": "Trace not found",
+                    "detail": f"No session matching '{trace_name}' in log/",
+                    "hint": "Try GET /traces to list available trace ids, or pass ?log_path=<path>",
+                }), 404
+            log_path = str(resolved)
+
+    result = query_sota(log_path)
+    status_code = 404 if "error" in result else 200
+    return jsonify(result), status_code
+
+
 @app.route("/", methods=["GET"])
 def index():
     # return 'Hello, World!'
